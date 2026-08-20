@@ -128,6 +128,43 @@ find "${STAGE}/app/vendor" -type d \
      \( -iname tests -o -iname test -o -iname docs -o -iname examples \) \
      -prune -exec rm -rf {} + 2>/dev/null || true
 
+say "Normalising component filenames"
+# Livewire's generator prefixes single-file components with a high-voltage
+# emoji (see config/livewire.php, make_command.emoji). It is decorative:
+# Livewire strips it when resolving a component name, so "⚡index.blade.php"
+# and "index.blade.php" are the same component. 280 view files carry it.
+#
+# The sweep covers vendor as well: Livewire ships two of these as test
+# fixtures, which never render, but leaving them would mean the bundle still
+# contains filenames an unzip tool could mangle.
+#
+# It is stripped here because this bundle travels as a .zip onto Windows, and
+# any unzip tool that mishandles non-ASCII filenames will rename those files.
+# The app then fails in a confusing way: the login page works, the password is
+# accepted, and every screen after it dies with "Unable to find component".
+# Reproduced exactly that way while verifying the first published Release.
+#
+# Done in the staged copy only. Renaming them in the repository would fork 280
+# files from upstream over pure cosmetics, and every future sync would conflict
+# on all of them; doing it at build time keeps working as upstream adds more.
+renamed=0
+while IFS= read -r -d '' f; do
+    dir="$(dirname "${f}")"
+    base="$(basename "${f}")"
+    mv "${f}" "${dir}/${base#⚡}"
+    renamed=$((renamed + 1))
+done < <(find "${STAGE}/app" -name '⚡*' -print0)
+
+# Fail loudly rather than silently shipping the risk again: zero matches means
+# upstream changed the convention and this step has quietly become dead code.
+if [[ "${renamed}" -eq 0 ]]; then
+    echo "ERROR: no emoji-prefixed component files were found to rename." >&2
+    echo "       Upstream has changed the naming convention, so this step is" >&2
+    echo "       now dead code and the Windows filename risk needs re-checking." >&2
+    exit 1
+fi
+printf '    %s component files renamed\n' "${renamed}"
+
 say "Building the front-end"
 # Built inside the staged copy, not the repository root, because
 # resources/css/app.css imports vendor/livewire/flux/dist/flux.css — so the
