@@ -30,3 +30,7 @@ CLAUDE.md
 # Passport OAuth signing keys — never commit; generate per-environment with `php artisan passport:keys`
 /storage/oauth-private.key
 /storage/oauth-public.key
+
+# Portable/USB build artefacts — never committed (see docs/usb-portable.md)
+/build
+/dist
