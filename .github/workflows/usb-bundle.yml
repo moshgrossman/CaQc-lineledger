@@ -1,0 +1,69 @@
+name: Build USB bundle
+
+# Builds the portable Windows/USB bundle and publishes it as a Release, so it
+# can be downloaded with one button from a phone or tablet.
+#
+# The bundle is ~133 MB. GitHub refuses any file over 100 MB in a commit, so it
+# cannot live in the repository — a Release asset (2 GB limit) is the way it
+# gets delivered.
+#
+# Run it from the Actions tab: "Build USB bundle" -> "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. usb-2026-08-20)'
+        required: true
+        default: 'usb-latest'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Must match the PHP shipped inside the bundle, so the generated
+          # database and the autoloader agree with what runs on Windows.
+          php-version: '8.5'
+          extensions: bcmath, gd, intl, mbstring, sqlite3, pdo_sqlite, zip
+          tools: composer
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build the bundle
+        run: bash tools/build-usb-bundle.sh
+
+      - name: Show what was produced
+        run: ls -lh dist/
+
+      - name: Publish as a Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: "LineLedger portable (USB) — ${{ inputs.tag }}"
+          files: dist/*.zip
+          body: |
+            Portable LineLedger for Windows. Runs from a USB stick — nothing is
+            installed, no administrator rights, no internet connection used.
+
+            **To use it:** download the `.zip` below, unzip it onto a USB stick
+            with the `LineLedger` folder at the top level, and double-click
+            `Start LineLedger.bat`. Full instructions are in `README-USB.txt`
+            inside the zip.
+
+            To look around first without touching real books, double-click
+            `Try the demo.bat` instead.
+
+            Built by `tools/build-usb-bundle.sh`. See `docs/usb-portable.md`
+            for how this build differs from a server install.
