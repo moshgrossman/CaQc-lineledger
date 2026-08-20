@@ -129,13 +129,24 @@ find "${STAGE}/app/vendor" -type d \
      -prune -exec rm -rf {} + 2>/dev/null || true
 
 say "Building the front-end"
+# Built inside the staged copy, not the repository root, because
+# resources/css/app.css imports vendor/livewire/flux/dist/flux.css — so the
+# build only resolves where composer has actually installed vendor/. The stage
+# is that place; a clean checkout's root is not.
+#
+# (CI caught this: the first version built at the root and failed with
+# "Can't resolve '../../vendor/livewire/flux/dist/flux.css'". It passed locally
+# only because that working copy happened to have a vendor/ directory left
+# over from an earlier install.)
+cp "${ROOT}/package.json" "${ROOT}/package-lock.json" "${ROOT}/vite.config.js" "${STAGE}/app/"
 (
-    cd "${ROOT}"
+    cd "${STAGE}/app"
     npm ci --silent
     npm run build
 )
-rm -rf "${STAGE}/app/public/build"
-cp -R "${ROOT}/public/build" "${STAGE}/app/public/build"
+# node_modules is a build-time dependency only; it must not reach the stick.
+rm -rf "${STAGE}/app/node_modules"
+rm -f "${STAGE}/app/package.json" "${STAGE}/app/package-lock.json" "${STAGE}/app/vite.config.js"
 
 say "Fetching PHP ${PHP_VERSION} for Windows"
 mkdir -p "${STAGE}/php"
