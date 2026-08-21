@@ -56,6 +56,31 @@ unplug.
 
 
 -------------------------------------------------------------
+LOGGING IN
+-------------------------------------------------------------
+
+YOUR OWN BOOKS start completely empty - there is no account
+yet, and no password to be given.
+
+The first time, click "Sign up" on the login page and create
+your account. The first account created is the owner.
+
+Nothing is sent anywhere. The account lives on this stick, in
+the Data folder, and nowhere else.
+
+THE PRACTICE BOOKS already have an account in them:
+
+    Email     test@example.com
+    Password  password
+
+That login only works in the practice books. It has nothing to
+do with your real ones.
+
+The black window tells you all of this too, every time it
+starts, so you never have to come back here for it.
+
+
+-------------------------------------------------------------
 WANT TO LOOK AROUND FIRST?
 -------------------------------------------------------------
 
