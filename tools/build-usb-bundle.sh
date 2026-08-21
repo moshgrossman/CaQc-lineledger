@@ -128,6 +128,25 @@ find "${STAGE}/app/vendor" -type d \
      \( -iname tests -o -iname test -o -iname docs -o -iname examples \) \
      -prune -exec rm -rf {} + 2>/dev/null || true
 
+say "Removing the country-switcher banner"
+# The login screen carries a guest banner: "You're viewing the US site. Want the
+# CA version instead?" with a "Go to Canada" button. On a normal deployment it
+# moves people between the two hosted sites. In this bundle it is a trap: the
+# button navigates out of the local app to books.lineledger.ca, which on the
+# test machine returned "503 Service Unavailable" — and offline it can never be
+# anything else.
+#
+# It renders from one line in the guest auth layout, so one line is removed.
+AUTH_LAYOUT="${STAGE}/app/resources/views/layouts/auth/simple.blade.php"
+if ! grep -q '<x-geo-banner />' "${AUTH_LAYOUT}"; then
+    echo "ERROR: the geo banner include was not found in the auth layout." >&2
+    echo "       Upstream moved or renamed it; re-check before shipping, or the" >&2
+    echo "       offline build will again offer a button that leaves the app." >&2
+    exit 1
+fi
+sed -i '/<x-geo-banner \/>/d' "${AUTH_LAYOUT}"
+grep -q '<x-geo-banner />' "${AUTH_LAYOUT}" && { echo "ERROR: banner still present." >&2; exit 1; }
+
 say "Normalising component filenames"
 # Livewire's generator prefixes single-file components with a high-voltage
 # emoji (see config/livewire.php, make_command.emoji). It is decorative:
@@ -202,7 +221,11 @@ cat > "${STAGE}/php/php.ini" <<'INI'
 ; Only what the application actually needs is enabled.
 extension_dir = "ext"
 
-extension=bcmath
+; bcmath is NOT listed: on Windows it is compiled into php8.dll rather than
+; shipped as ext\php_bcmath.dll, so "extension=bcmath" only produces a startup
+; warning — the first thing the user sees. Verified against the shipped build:
+; php8.dll exports bcadd/bcsub/bcmul/bcdiv/bcscale/bcpow, so the functions are
+; present either way. Every extension below DOES have a matching DLL.
 extension=curl
 extension=fileinfo
 extension=gd
@@ -271,6 +294,10 @@ APP_NAME=LineLedger
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=http://127.0.0.1:8777
+
+# A Quebec business. Region drives the legal-document links; without it the app
+# derives region from the hostname and settles on the US site.
+APP_REGION=CA
 
 # Written once on first run and never regenerated. A key that changes on every
 # start invalidates every session cookie and logs the user out at random.

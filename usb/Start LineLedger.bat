@@ -135,6 +135,10 @@ if !TRIES! GEQ 40 (
     echo   needed to fix this.
     goto :fail
 )
+rem Show progress: on a USB stick the first start reads ~200 MB, and a
+rem silent "Starting..." is indistinguishable from a hang.
+set /a SHOWN=TRIES %% 5
+if !SHOWN! EQU 0 echo      still starting... !TRIES! seconds
 ping -n 2 127.0.0.1 >nul
 goto :waitloop
 
@@ -162,14 +166,24 @@ for %%B in (
 )
 if not defined OPENED start "" "%URL%"
 
-echo   LineLedger is open.
+echo   LineLedger is open at %URL%
 echo.
 if /i "%BOOKS%"=="demo" (
     echo   These are PRACTICE books with a made-up company in them.
     echo   Nothing you type here touches your real books.
+    echo.
+    echo   LOG IN WITH:
+    echo       Email     test@example.com
+    echo       Password  password
 ) else (
-    echo   Your books are in the Data folder next to this file.
-    echo   To back up: copy that folder somewhere safe.
+    echo   These are YOUR books, and they start empty.
+    echo.
+    echo   FIRST TIME: there is no account yet. Click "Sign up" on the
+    echo   login page and create one. The first account you make is the
+    echo   owner. Nothing is sent anywhere - the account lives on this
+    echo   stick, in the Data folder.
+    echo.
+    echo   To back up: copy the Data folder somewhere safe.
 )
 echo.
 echo   ---------------------------------------------------------
