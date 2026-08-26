@@ -112,10 +112,15 @@ say "Removing libraries this bundle cannot use"
 #
 # The bank-statement PDF reader (smalot/pdfparser) is deliberately KEPT: ~36 MB,
 # and it is what reads a bank statement that arrives as a PDF.
+#
+# laravel/tinker goes too. It is an interactive PHP console for a developer at a
+# terminal — there is no terminal here, and the one build-time use of it has
+# been rewritten as plain SQL. It drags in psy/psysh and nikic/php-parser:
+# ~1,450 files that would otherwise be created one by one on the USB stick.
 (
     cd "${STAGE}/app"
     COMPOSER_ALLOW_SUPERUSER=1 "${PHP_BIN}" "$(command -v composer)" remove \
-        league/flysystem-aws-s3-v3 aws/aws-sdk-php \
+        league/flysystem-aws-s3-v3 aws/aws-sdk-php laravel/tinker \
         --no-interaction --no-scripts --update-no-dev --no-progress \
         --optimize-autoloader --classmap-authoritative
 )
@@ -127,6 +132,101 @@ find "${STAGE}/app/vendor" -type d -name .git -prune -exec rm -rf {} + 2>/dev/nu
 find "${STAGE}/app/vendor" -type d \
      \( -iname tests -o -iname test -o -iname docs -o -iname examples \) \
      -prune -exec rm -rf {} + 2>/dev/null || true
+
+say "Trimming the file count"
+# WHY THIS STEP EXISTS, and why it is worth the risk of deleting things:
+#
+# Unzipping the bundle onto a USB stick took over half an hour on the test
+# machine. That is not the zip's size — 96 MB writes in a couple of minutes.
+# It is the COUNT. Windows creates each file separately: allocate, write the
+# directory entry, flush, hand it to the antivirus filter, move on. On removable
+# media that is roughly a fixed cost per file, so 20,000 files cost 20,000 times
+# it no matter how small they are.
+#
+# Measured on this repository, a production install is ~39,000 files. Removing
+# the AWS SDK takes out ~11,300 of them and the tests/docs sweep above another
+# ~9,400, which still leaves ~18,000 shipping to the stick. Everything below is
+# a file that is never read while the application is running.
+#
+# Nothing here is guessed: the boot check at the end of this step actually runs
+# the application, and the build FAILS if any of these deletions broke it.
+
+count_files() { find "$1" -type f 2>/dev/null | wc -l | tr -d ' '; }
+before_trim="$(count_files "${STAGE}/app")"
+
+# 1. Package metadata and developer configuration. Read by humans and by CI,
+#    never by PHP at runtime.
+find "${STAGE}/app/vendor" -type f \
+     \( -iname '*.md' -o -iname '*.rst' \
+        -o -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'AUTHORS*' \
+        -o -iname 'CHANGELOG*' -o -iname 'UPGRAD*' -o -iname 'SECURITY*' \
+        -o -iname '.editorconfig' -o -iname '.gitattributes' \
+        -o -iname '.gitignore' -o -iname '*.dist' \
+        -o -iname 'phpunit.xml*' -o -iname 'phpstan*' -o -iname 'psalm*' \
+        -o -iname 'infection*' -o -iname '.php-cs-fixer*' -o -iname 'Makefile' \) \
+     -delete 2>/dev/null || true
+find "${STAGE}/app/vendor" -type d \
+     \( -name '.github' -o -name '.circleci' -o -name 'benchmarks' \
+        -o -name 'Tests' -o -name 'Test' -o -name 'fixtures' -o -name 'Fixtures' \) \
+     -prune -exec rm -rf {} + 2>/dev/null || true
+
+# 2. Translations for languages this bundle will never display. LineLedger runs
+#    here in English for a Quebec business, so English and French stay and the
+#    other ~130 locales go. Carbon alone ships over a thousand of these.
+#
+#    Locale files are named like "en.php", "fr_CA.json", "validators.de.xlf" —
+#    the sweep keeps anything whose language part is en or fr and deletes the
+#    rest, and only ever inside a directory that is clearly a language store.
+prune_locales() {
+    local dir="$1"
+    [[ -d "${dir}" ]] || return 0
+    find "${dir}" -type f \
+         \( -name '*.php' -o -name '*.json' -o -name '*.xlf' -o -name '*.yaml' \) \
+         ! -iname 'en*' ! -iname 'fr*' \
+         ! -iname '*.en.*' ! -iname '*.fr.*' \
+         -delete 2>/dev/null || true
+}
+prune_locales "${STAGE}/app/vendor/nesbot/carbon/src/Carbon/Lang"
+while IFS= read -r -d '' d; do prune_locales "${d}"; done \
+    < <(find "${STAGE}/app/vendor" -type d \
+             \( -name 'translations' -o -name 'lang' -o -name 'Lang' \) -print0)
+
+# 3. Empty directories left behind by the sweeps. They cost a directory entry
+#    each on the stick for nothing.
+find "${STAGE}/app/vendor" -type d -empty -delete 2>/dev/null || true
+
+after_trim="$(count_files "${STAGE}/app")"
+printf '    %s files before, %s after (%s removed)\n' \
+       "${before_trim}" "${after_trim}" "$((before_trim - after_trim))"
+
+say "Checking the application still boots after trimming"
+# The whole point: prove it, do not hope. If any deletion above took something
+# the app actually needs, this fails the build here rather than on his stick.
+(
+    cd "${STAGE}/app"
+    DB_CONNECTION=sqlite DB_DATABASE=":memory:" \
+    APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" APP_ENV=production \
+        "${PHP_BIN}" artisan route:list --json >/dev/null
+)
+
+say "Removing the country-switcher banner"
+# The login screen carries a guest banner: "You're viewing the US site. Want the
+# CA version instead?" with a "Go to Canada" button. On a normal deployment it
+# moves people between the two hosted sites. In this bundle it is a trap: the
+# button navigates out of the local app to books.lineledger.ca, which on the
+# test machine returned "503 Service Unavailable" — and offline it can never be
+# anything else.
+#
+# It renders from one line in the guest auth layout, so one line is removed.
+AUTH_LAYOUT="${STAGE}/app/resources/views/layouts/auth/simple.blade.php"
+if ! grep -q '<x-geo-banner />' "${AUTH_LAYOUT}"; then
+    echo "ERROR: the geo banner include was not found in the auth layout." >&2
+    echo "       Upstream moved or renamed it; re-check before shipping, or the" >&2
+    echo "       offline build will again offer a button that leaves the app." >&2
+    exit 1
+fi
+sed -i '/<x-geo-banner \/>/d' "${AUTH_LAYOUT}"
+grep -q '<x-geo-banner />' "${AUTH_LAYOUT}" && { echo "ERROR: banner still present." >&2; exit 1; }
 
 say "Normalising component filenames"
 # Livewire's generator prefixes single-file components with a high-voltage
@@ -202,7 +302,11 @@ cat > "${STAGE}/php/php.ini" <<'INI'
 ; Only what the application actually needs is enabled.
 extension_dir = "ext"
 
-extension=bcmath
+; bcmath is NOT listed: on Windows it is compiled into php8.dll rather than
+; shipped as ext\php_bcmath.dll, so "extension=bcmath" only produces a startup
+; warning — the first thing the user sees. Verified against the shipped build:
+; php8.dll exports bcadd/bcsub/bcmul/bcdiv/bcscale/bcpow, so the functions are
+; present either way. Every extension below DOES have a matching DLL.
 extension=curl
 extension=fileinfo
 extension=gd
@@ -224,8 +328,33 @@ post_max_size = 32M
 
 date.timezone = America/Toronto
 
-; No opcache: the app runs from a USB stick and is started fresh each time,
-; so the cache would be rebuilt on every run for no benefit.
+; Opcache. This was previously switched OFF here, with the reasoning that the
+; bundle "starts fresh each time so the cache would be rebuilt for no benefit".
+; That reasoning was wrong, and it is the single biggest cause of the app being
+; slow on a stick.
+;
+; The bundle does not run one PHP process per request. "artisan serve" starts
+; ONE long-lived server process that then handles every request until the black
+; window is closed. Without opcache that process re-reads and re-compiles
+; several hundred PHP files off the USB stick on EVERY page load. With opcache
+; it compiles each file once, keeps the compiled form in memory, and every later
+; request skips the stick entirely.
+;
+; Verified: with these settings the built-in server reports opcache_enabled
+; true, and its hit counter climbs with each request.
+opcache.enable=1
+; The built-in server runs under the "cli-server" SAPI. Modern PHP enables
+; opcache there regardless of this setting, but the one-off artisan commands the
+; launcher runs (view:cache) are plain CLI and do benefit, so it is on.
+opcache.enable_cli=1
+opcache.memory_consumption=256
+opcache.interned_strings_buffer=16
+; The app is ~5,000 PHP files after trimming; this leaves room to grow.
+opcache.max_accelerated_files=20000
+; Never re-check a file's timestamp. Safe here in a way it is not on a server:
+; nothing on the stick edits the application while it runs, and every launch
+; starts a fresh process anyway.
+opcache.validate_timestamps=0
 INI
 
 say "Creating the empty and demo books"
@@ -252,9 +381,19 @@ build_db() {
         fi
         # The seeded demo account is marked confirmed for the same reason as the
         # patch above: there is no mail server here to confirm it with.
-        DB_CONNECTION=sqlite DB_DATABASE="${STAGE}/app/database/database.sqlite" \
-        APP_KEY="base64:$(head -c 32 /dev/urandom | base64)" APP_ENV=production \
-            "${PHP_BIN}" artisan tinker --execute="\\App\\Models\\User::query()->whereNull('email_verified_at')->update(['email_verified_at' => now()]);" >/dev/null 2>&1 || true
+        #
+        # Done with a direct SQL update rather than "artisan tinker" for two
+        # reasons: tinker drags in psy/psysh and nikic/php-parser (~1,450 files
+        # that would otherwise have to ship to the stick), and the old call
+        # ended in "|| true", so if it ever failed the bundle shipped with an
+        # unconfirmed demo account and nobody would have known.
+        "${PHP_BIN}" -r '
+            $db = new PDO("sqlite:".$argv[1]);
+            $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $n = $db->exec("UPDATE users SET email_verified_at = CURRENT_TIMESTAMP
+                            WHERE email_verified_at IS NULL");
+            fwrite(STDERR, "    ".$n." account(s) marked confirmed\n");
+        ' "${STAGE}/app/database/database.sqlite"
 
         mv database/database.sqlite "${target}"
     )
@@ -271,6 +410,10 @@ APP_NAME=LineLedger
 APP_ENV=production
 APP_DEBUG=false
 APP_URL=http://127.0.0.1:8777
+
+# A Quebec business. Region drives the legal-document links; without it the app
+# derives region from the hostname and settles on the US site.
+APP_REGION=CA
 
 # Written once on first run and never regenerated. A key that changes on every
 # start invalidates every session cookie and logs the user out at random.
@@ -289,7 +432,11 @@ SESSION_LIFETIME=525600
 # Offline build: no outbound mail, no error reporting, no bot challenge.
 MAIL_MAILER=log
 LOG_CHANNEL=single
-LOG_LEVEL=warning
+# debug, not warning. When the app fails it shows a bare "500 Server Error" and
+# nothing else; the log is the only place the real reason is written, and at
+# "warning" most of the useful detail never reaches it. There is no privacy cost
+# — the file never leaves the stick — and "Show the error log.bat" opens it.
+LOG_LEVEL=debug
 BANK_IMPORT_AI_ENABLED=false
 ENVT
 
@@ -298,12 +445,58 @@ cp "${ROOT}/usb/Start LineLedger.bat" "${STAGE}/"
 cp "${ROOT}/usb/Try the demo.bat"     "${STAGE}/"
 cp "${ROOT}/usb/first-run.php"        "${STAGE}/"
 cp "${ROOT}/usb/README-USB.txt"       "${STAGE}/"
+cp "${ROOT}/usb/Show the error log.bat" "${STAGE}/"
+
+# Stamp the build number into the launcher, so the black window always names
+# the build that is running. Guessing which build is on a stick has cost a test
+# cycle before.
+BUNDLE_VERSION="$(cat "${ROOT}/usb/BUNDLE-VERSION" | tr -d '[:space:]')"
+if ! grep -q '__BUNDLE_VERSION__' "${STAGE}/Start LineLedger.bat"; then
+    echo "ERROR: the launcher has no __BUNDLE_VERSION__ placeholder to stamp." >&2
+    exit 1
+fi
+sed -i "s/__BUNDLE_VERSION__/${BUNDLE_VERSION}/" "${STAGE}/Start LineLedger.bat"
+
+say "Clearing build-machine caches"
+# Anything Laravel generated while this script ran (it boots the app to migrate
+# and to check the trim) is thrown away. The caches that matter are built on the
+# stick itself by the launcher, where the paths are the machine's own.
+rm -rf "${STAGE}/app/bootstrap/cache"/*.php
+find "${STAGE}/app/storage/framework/views" -name '*.php' -delete 2>/dev/null || true
+
+say "Packing the program into one file"
+# THIS IS THE FIX FOR "THE UNZIP TOOK OVER HALF AN HOUR".
+#
+# Windows Explorer's built-in zip extractor is the slowest way to write many
+# small files that exists on the machine: it goes through the shell one file at
+# a time, and every one of them is handed to the antivirus filter on the way.
+# Onto a USB stick that is minutes per thousand files.
+#
+# So the download no longer contains thousands of loose files. The whole
+# application goes into ONE file, program.tar.gz, and the download holds about
+# a hundred entries instead of fifteen thousand — nearly all of them the PHP
+# runtime, which stays loose so that php.exe is available before anything is
+# unpacked. Explorer's job becomes copying one big file, which is the thing a
+# USB stick is actually good at.
+#
+# Unpacking happens ONCE, on the stick, done by the launcher with tar.exe —
+# part of Windows since 2018, and it writes files directly with no shell and no
+# per-file overhead. .tar.gz rather than .zip on purpose: it is tar's own
+# format, so there is no question of whether the Windows copy can read it, and
+# php.exe can unpack it too if tar is somehow missing.
+#
+# -h dereferences symlinks, so the archive holds real files even if a future
+# dependency ships one — Windows cannot be relied on to recreate a link.
+( cd "${STAGE}" && tar -czhf program.tar.gz app && rm -rf app )
+printf '    program.tar.gz is %s\n' "$(du -h "${STAGE}/program.tar.gz" | cut -f1)"
 
 say "Zipping"
 VERSION="$(cat "${ROOT}/VERSION" 2>/dev/null | tr -d '[:space:]' || echo dev)"
-ZIP="${DIST}/LineLedger-USB-${VERSION}.zip"
+BUNDLE="$(cat "${ROOT}/usb/BUNDLE-VERSION" 2>/dev/null | tr -d '[:space:]' || echo 0)"
+ZIP="${DIST}/LineLedger-USB-${VERSION}-b${BUNDLE}.zip"
 rm -f "${ZIP}"
 ( cd "${BUILD}" && zip -rq "${ZIP}" LineLedger )
 
 say "Done"
-printf '  %s\n  %s\n' "${ZIP}" "$(du -h "${ZIP}" | cut -f1)"
+printf '  %s\n  %s\n  %s entries in the download\n' \
+       "${ZIP}" "$(du -h "${ZIP}" | cut -f1)" "$(unzip -l "${ZIP}" | tail -1 | awk '{print $2}')"
