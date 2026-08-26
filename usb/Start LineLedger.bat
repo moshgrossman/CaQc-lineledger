@@ -36,29 +36,90 @@ set "DATADIR=%HERE%Data"
 set "PHPEXE=%PHPDIR%\php.exe"
 set "PHPINI=%PHPDIR%\php.ini"
 
+rem Replaced with the real number when the bundle is built, so the
+rem window always says which build is running.
+set "BUNDLEVER=__BUNDLE_VERSION__"
+
 echo.
-echo   %LABEL%
+echo   %LABEL%   (USB build %BUNDLEVER%)
 echo   --------------------------------
 echo.
+
+rem --- 0. First time on this stick: unpack the program ------------
+rem The download carries the application as ONE file, program.tar.gz,
+rem rather than fifteen thousand loose ones. Windows Explorer copies a
+rem single big file to a stick in a couple of minutes; unzipping
+rem thousands of small ones took over half an hour on the test machine.
+rem
+rem tar.exe does the unpacking here. It has been part of Windows since
+rem 2018 and writes files directly, without the shell overhead that
+rem makes Explorer so slow. If it is missing, php.exe does the same job
+rem more slowly - php.exe is not inside the archive, precisely so that
+rem it is available at this point.
+rem
+rem This runs once, and then program.tar.gz is deleted.
+if not exist "%APPDIR%\artisan" if exist "%HERE%program.tar.gz" (
+    echo   First time on this stick - unpacking LineLedger.
+    echo.
+    echo   This happens ONCE, and it takes a few minutes. The screen
+    echo   will look like nothing is happening. Do not unplug the
+    echo   stick and do not close this window.
+    echo.
+
+    pushd "%HERE%"
+    set "UNPACKED="
+    where tar.exe >nul 2>&1
+    if not errorlevel 1 (
+        tar -xf "program.tar.gz"
+        set "UNPACKED=1"
+    )
+    if not defined UNPACKED (
+        echo   Windows has no unpacker here, so PHP is doing it. This
+        echo   is slower. Nothing is wrong.
+        "%PHPEXE%" -c "%PHPINI%" -r "$p=new PharData('program.tar.gz'); $p->decompress(); $t=new PharData('program.tar'); $t->extractTo('.', null, true); @unlink('program.tar');"
+    )
+    popd
+
+    if not exist "%APPDIR%\artisan" (
+        echo.
+        echo   PROBLEM: unpacking did not finish.
+        echo.
+        echo   The most likely reason is space: LineLedger needs about
+        echo   1 GB free on the stick while it unpacks. Free some space
+        echo   and start it again.
+        echo.
+        echo   If the stick has plenty of room, the antivirus may have
+        echo   stopped it - see "If Windows blocks it" in README-USB.txt.
+        goto :fail
+    )
+
+    rem No longer needed, and it is the largest file on the stick.
+    del "%HERE%program.tar.gz" >nul 2>&1
+    echo   Unpacked. This will not happen again.
+    echo.
+)
 
 rem --- 1. Is the bundle intact? -----------------------------------
 if not exist "%PHPEXE%" (
     echo   PROBLEM: php.exe is missing.
     echo.
-    echo   The folder is incomplete. Unzip the download again and keep
-    echo   all three folders together:  app, php, Data.
+    echo   The folder is incomplete. Unzip the download again, and
+    echo   keep everything inside the LineLedger folder together.
     goto :fail
 )
 if not exist "%APPDIR%\artisan" (
-    echo   PROBLEM: the application files are missing.
+    echo   PROBLEM: the application files are missing, and so is the
+    echo   program.tar.gz they are unpacked from.
     echo.
-    echo   Unzip the download again, keeping all folders together.
+    echo   Unzip the download again, keeping everything inside the
+    echo   LineLedger folder together.
     goto :fail
 )
 if not exist "%DATADIR%\%DBFILE%" (
     echo   PROBLEM: the books file %DBFILE% is missing from Data.
     echo.
-    echo   Unzip the download again, keeping all folders together.
+    echo   Unzip the download again, keeping everything inside the
+    echo   LineLedger folder together.
     goto :fail
 )
 
@@ -101,6 +162,30 @@ if not exist "%APPDIR%\.env" (
     )
 
     echo   Setup finished.
+    echo.
+)
+
+rem --- 3b. Compile the screens, once -------------------------------
+rem LineLedger's 400-odd screens are templates that PHP has to compile
+rem before it can show them. Left alone, that happens the first time
+rem each screen is opened - reading from the stick, while the user
+rem waits. Doing them all here, once, is the difference between a slow
+rem first hour and a slow first minute.
+rem
+rem This is deliberately NOT done when the bundle is built: the compiled
+rem name depends on the path separator, so a cache built on the build
+rem machine would be silently ignored here and every screen would
+rem compile again anyway.
+if not exist "%APPDIR%\storage\framework\views\*.php" (
+    echo   Preparing the screens. About a minute, once.
+    pushd "%APPDIR%"
+    "%PHPEXE%" -c "%PHPINI%" artisan view:cache >nul 2>&1
+    rem Routes too. If this ever fails the app must still run, so the
+    rem half-built cache is thrown away rather than left in place.
+    "%PHPEXE%" -c "%PHPINI%" artisan route:cache >nul 2>&1
+    if errorlevel 1 "%PHPEXE%" -c "%PHPINI%" artisan route:clear >nul 2>&1
+    popd
+    echo   Ready to go.
     echo.
 )
 

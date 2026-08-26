@@ -3,7 +3,7 @@ name: Build USB bundle
 # Builds the portable Windows/USB bundle and publishes it as a Release, so it
 # can be downloaded with one button from a phone or tablet.
 #
-# The bundle is ~133 MB. GitHub refuses any file over 100 MB in a commit, so it
+# The bundle is ~100 MB. GitHub refuses any file over 100 MB in a commit, so it
 # cannot live in the repository — a Release asset (2 GB limit) is the way it
 # gets delivered.
 #
@@ -61,6 +61,10 @@ jobs:
             with the `LineLedger` folder at the top level, and double-click
             `Start LineLedger.bat`. Full instructions are in `README-USB.txt`
             inside the zip.
+
+            The unzip is quick — the application travels as one packed file.
+            The FIRST run of `Start LineLedger.bat` unpacks it and prepares the
+            screens, which takes a few minutes and happens only once.
 
             To look around first without touching real books, double-click
             `Try the demo.bat` instead.

@@ -10,6 +10,11 @@ SETTING IT UP - ONCE
 
 1. Unzip the download onto the USB stick.
 
+   This is quick now - a couple of minutes. The application
+   travels as one packed file rather than thousands of small
+   ones, because Windows is painfully slow at writing many
+   small files to a stick.
+
    Put the LineLedger folder at the TOP of the stick, not
    buried inside other folders. Windows still trips over very
    long folder names.
@@ -17,17 +22,30 @@ SETTING IT UP - ONCE
    When you are done the stick should look like this:
 
        E:\LineLedger\
-           app\
            php\
            Data\
+           program.tar.gz
            Start LineLedger.bat
            Try the demo.bat
+           Show the error log.bat
            first-run.php
            README-USB.txt
 
    Keep all of that together. Moving one folder out breaks it.
 
-2. That's the whole setup. Nothing to install.
+2. Double-click "Start LineLedger.bat" once, and leave it
+   alone for a few minutes.
+
+   The first time only, it unpacks program.tar.gz into an
+   app folder and gets the screens ready. The window says
+   what it is doing. It looks like nothing is happening for
+   long stretches - that is normal, and it is the only time
+   it will be this slow.
+
+   When it finishes, program.tar.gz disappears - it has been
+   unpacked and is not needed again - and LineLedger opens.
+
+3. That's the whole setup. Nothing is installed on the PC.
 
 
 -------------------------------------------------------------
@@ -38,8 +56,7 @@ Plug the stick into any Windows PC and double-click
 
     Start LineLedger.bat
 
-The first time, it spends a few seconds setting itself up.
-After that it opens in a few seconds.
+After that first unpacking, it opens in a few seconds.
 
 LineLedger opens in its own window - no tabs, no address bar.
 It looks like a program because that is how it is meant to
@@ -78,6 +95,29 @@ do with your real ones.
 
 The black window tells you all of this too, every time it
 starts, so you never have to come back here for it.
+
+
+-------------------------------------------------------------
+IF SOMETHING GOES WRONG
+-------------------------------------------------------------
+
+If a page ever shows nothing but
+
+    500  Server Error
+
+that is the app telling you it hit a problem without saying
+what. The what is written down. Double-click
+
+    Show the error log.bat
+
+It opens the log in Notepad. Scroll to the BOTTOM - the last
+few lines are the failure that just happened.
+
+Sending those last lines is usually enough to get it fixed
+outright, so it is worth doing before anything else.
+
+If the file does not exist at all, that means LineLedger has
+never recorded an error, which is good news.
 
 
 -------------------------------------------------------------
