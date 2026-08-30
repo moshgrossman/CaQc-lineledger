@@ -20,9 +20,18 @@
 #
 set -euo pipefail
 
-PHP_VERSION="8.5.9"
-PHP_ZIP_NAME="php-${PHP_VERSION}-nts-Win32-vs17-x64.zip"
-PHP_ZIP_URL="https://downloads.php.net/~windows/releases/${PHP_ZIP_NAME}"
+# The PHP branch shipped inside the bundle, NOT a full version number.
+#
+# It used to be pinned to an exact patch release ("8.5.9") with a hand-written
+# URL. That broke the build: php.net keeps only the current patch release of a
+# branch in the releases directory and moves the previous one to archives/, so
+# the pinned URL 404'd the moment 8.5.10 came out. The build now asks php.net
+# which patch release is current, and verifies what it downloads against the
+# checksum php.net publishes for it.
+PHP_BRANCH="8.5"
+PHP_FLAVOUR="nts-vs17-x64"
+PHP_RELEASES_JSON="https://downloads.php.net/~windows/releases/releases.json"
+PHP_RELEASES_BASE="https://downloads.php.net/~windows/releases"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="${ROOT}/build/usb"
@@ -285,12 +294,48 @@ cp "${ROOT}/package.json" "${ROOT}/package-lock.json" "${ROOT}/vite.config.js" "
 rm -rf "${STAGE}/app/node_modules"
 rm -f "${STAGE}/app/package.json" "${STAGE}/app/package-lock.json" "${STAGE}/app/vite.config.js"
 
-say "Fetching PHP ${PHP_VERSION} for Windows"
+say "Fetching PHP ${PHP_BRANCH} for Windows"
 mkdir -p "${STAGE}/php"
 if [[ -n "${PHP_ZIP_LOCAL}" ]]; then
+    PHP_ZIP_NAME="$(basename "${PHP_ZIP_LOCAL}")"
     cp "${PHP_ZIP_LOCAL}" "${BUILD}/${PHP_ZIP_NAME}"
+    printf '    using the local copy %s\n' "${PHP_ZIP_NAME}"
 else
-    curl -fsSL "${PHP_ZIP_URL}" -o "${BUILD}/${PHP_ZIP_NAME}"
+    # Ask php.net what the current build of this branch is, rather than
+    # guessing a filename that stops existing when the next patch ships.
+    curl -fsSL "${PHP_RELEASES_JSON}" -o "${BUILD}/releases.json"
+
+    read -r PHP_ZIP_NAME PHP_ZIP_SHA256 < <(
+        "${PHP_BIN}" -r '
+            $j = json_decode(file_get_contents($argv[1]), true);
+            $b = $argv[2]; $f = $argv[3];
+            if (! isset($j[$b][$f]["zip"]["path"])) {
+                fwrite(STDERR, "php.net lists no ".$f." build for PHP ".$b."\n");
+                exit(1);
+            }
+            echo $j[$b][$f]["zip"]["path"], " ",
+                 ($j[$b][$f]["zip"]["sha256"] ?? ""), "\n";
+        ' "${BUILD}/releases.json" "${PHP_BRANCH}" "${PHP_FLAVOUR}"
+    )
+    printf '    php.net currently ships %s\n' "${PHP_ZIP_NAME}"
+
+    # The current release lives in the releases directory; anything older has
+    # been moved to archives/. Try both, so a build kicked off while php.net is
+    # mid-rotation still finds the file it was just told about.
+    if ! curl -fsSL "${PHP_RELEASES_BASE}/${PHP_ZIP_NAME}" -o "${BUILD}/${PHP_ZIP_NAME}"; then
+        curl -fsSL "${PHP_RELEASES_BASE}/archives/${PHP_ZIP_NAME}" -o "${BUILD}/${PHP_ZIP_NAME}"
+    fi
+
+    # Verify it against the checksum php.net publishes. This bundle is handed to
+    # someone who runs it with no network and no way to check it himself, so a
+    # silently truncated or substituted download must never reach the stick.
+    if [[ -n "${PHP_ZIP_SHA256}" ]]; then
+        echo "${PHP_ZIP_SHA256}  ${BUILD}/${PHP_ZIP_NAME}" | sha256sum -c - >/dev/null
+        printf '    checksum verified\n'
+    else
+        echo "ERROR: php.net published no checksum for ${PHP_ZIP_NAME}." >&2
+        exit 1
+    fi
 fi
 unzip -q "${BUILD}/${PHP_ZIP_NAME}" -d "${STAGE}/php"
 # The debug symbols and the development headers are not needed to run.
