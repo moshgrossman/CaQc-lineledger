@@ -11,7 +11,7 @@ Build it with:
 tools/build-usb-bundle.sh
 ```
 
-The result is `dist/LineLedger-USB-<version>-b<bundle>.zip` (~100 MB). The
+The result is `dist/LineLedger-USB-<version>-b<bundle>.zip` (~120 MB). The
 `<bundle>` number comes from `usb/BUNDLE-VERSION` and is stamped into the
 launcher, so the black window always names the build that is running.
 
@@ -51,8 +51,8 @@ at runtime, and the build then boots the application (`artisan route:list`) and
 fails if any of it was needed.
 
 **The rest stopped being loose files.** `app/` is packed into one
-`program.tar.gz`, so the download holds a little over a hundred entries —
-nearly all of them the PHP runtime — instead of seventeen thousand. Explorer copies one big file, which is what a stick is good
+`program.tar.gz`, so the download holds **96** entries — 77 of them the PHP
+runtime — instead of seventeen thousand. Explorer copies one big file, which is what a stick is good
 at. The launcher unpacks it once with `tar.exe` — part of Windows since 2018,
 writing files directly with no shell overhead — then deletes the archive.
 `php/` deliberately stays loose so `php.exe` exists before anything is

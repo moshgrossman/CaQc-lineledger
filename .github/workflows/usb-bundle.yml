@@ -3,7 +3,7 @@ name: Build USB bundle
 # Builds the portable Windows/USB bundle and publishes it as a Release, so it
 # can be downloaded with one button from a phone or tablet.
 #
-# The bundle is ~100 MB. GitHub refuses any file over 100 MB in a commit, so it
+# The bundle is ~120 MB. GitHub refuses any file over 100 MB in a commit, so it
 # cannot live in the repository — a Release asset (2 GB limit) is the way it
 # gets delivered.
 #
