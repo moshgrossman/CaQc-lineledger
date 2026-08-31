@@ -644,40 +644,49 @@ if [[ -n "${PREV_MANIFEST}" && -s "${PREV_MANIFEST}" ]]; then
     removed_count="$(wc -l < "${PACK}/removed.txt")"
     printf '    %s changed or new, %s removed\n' "${changed_count}" "${removed_count}"
 
-    while IFS= read -r f; do
-        [[ -n "${f}" ]] || continue
-        mkdir -p "${PACK}/files/$(dirname "${f}")"
-        cp "${STAGE}/${f}" "${PACK}/files/${f}"
-    done < "${BUILD}/changed.txt"
+    if [[ "${changed_count}" -eq 0 && "${removed_count}" -eq 0 ]]; then
+        # A rebuild of identical source. An empty pack would be a download that
+        # does nothing and an "Apply update" that fails on a folder with no
+        # files in it.
+        printf '    Identical to the previous build — no update pack.\n'
+        rm -rf "${PACK}"
+    else
 
-    # Two things the applier has to know about, because getting either wrong
-    # would cost him a test cycle or his books.
-    #
-    # 1. Compiled screens. If any template changed, the ones already compiled
-    #    on the stick have to go, or he tests the old screen and reports that
-    #    nothing changed.
-    if grep -qE '^app/resources/views/|\.blade\.php$' "${BUILD}/changed.txt"; then
-        echo yes > "${PACK}/recompile-screens.flag"
+        while IFS= read -r f; do
+            [[ -n "${f}" ]] || continue
+            mkdir -p "${PACK}/files/$(dirname "${f}")"
+            cp "${STAGE}/${f}" "${PACK}/files/${f}"
+        done < "${BUILD}/changed.txt"
+
+        # Two things the applier has to know about, because getting either wrong
+        # would cost him a test cycle or his books.
+        #
+        # 1. Compiled screens. If any template changed, the ones already compiled
+        #    on the stick have to go, or he tests the old screen and reports that
+        #    nothing changed.
+        if grep -qE '^app/resources/views/|\.blade\.php$' "${BUILD}/changed.txt"; then
+            echo yes > "${PACK}/recompile-screens.flag"
+        fi
+        # 2. The books' structure. The stick's books are built and migrated HERE, at
+        #    build time — nothing migrates them on the stick. So a build that
+        #    changes a migration cannot be delivered as an update at all, and the
+        #    pack has to say so rather than half-apply and corrupt his books.
+        if grep -q '^app/database/migrations/' "${BUILD}/changed.txt" \
+           || grep -q '^app/database/migrations/' "${PACK}/removed.txt"; then
+            echo yes > "${PACK}/full-bundle-required.flag"
+        fi
+
+        cp "${ROOT}/usb/Apply update.bat"      "${PACK}/"
+        cp "${ROOT}/usb/apply-env-updates.php" "${PACK}/"
+        "${PHP_BIN}" "${ROOT}/tools/write-update-instructions.php" \
+            "${PACK}" "${BUNDLE_VERSION}" "${BUILD}/changed.txt" \
+            "${ROOT}/usb/BUNDLE-NOTES.txt"
+
+        UPDATE_ZIP="${DIST}/LineLedger-update-to-b${BUNDLE_VERSION}.zip"
+        rm -f "${UPDATE_ZIP}"
+        ( cd "${PACK}" && zip -rq "${UPDATE_ZIP}" . )
+        printf '    %s (%s)\n' "${UPDATE_ZIP##*/}" "$(du -h "${UPDATE_ZIP}" | cut -f1)"
     fi
-    # 2. The books' structure. The stick's books are built and migrated HERE, at
-    #    build time — nothing migrates them on the stick. So a build that
-    #    changes a migration cannot be delivered as an update at all, and the
-    #    pack has to say so rather than half-apply and corrupt his books.
-    if grep -q '^app/database/migrations/' "${BUILD}/changed.txt" \
-       || grep -q '^app/database/migrations/' "${PACK}/removed.txt"; then
-        echo yes > "${PACK}/full-bundle-required.flag"
-    fi
-
-    cp "${ROOT}/usb/Apply update.bat"      "${PACK}/"
-    cp "${ROOT}/usb/apply-env-updates.php" "${PACK}/"
-    "${PHP_BIN}" "${ROOT}/tools/write-update-instructions.php" \
-        "${PACK}" "${BUNDLE_VERSION}" "${BUILD}/changed.txt" \
-        "${ROOT}/usb/BUNDLE-NOTES.txt"
-
-    UPDATE_ZIP="${DIST}/LineLedger-update-to-b${BUNDLE_VERSION}.zip"
-    rm -f "${UPDATE_ZIP}"
-    ( cd "${PACK}" && zip -rq "${UPDATE_ZIP}" . )
-    printf '    %s (%s)\n' "${UPDATE_ZIP##*/}" "$(du -h "${UPDATE_ZIP}" | cut -f1)"
 else
     say "No previous manifest — full bundle only"
     printf '    Nothing to compare against, so no update pack this time.\n'
