@@ -41,8 +41,33 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Fetch the previous build's file list
+        # Without it there is nothing to compare against and the build simply
+        # publishes the full bundle alone. With it, the build can work out
+        # exactly what changed and ship a small update pack — the difference
+        # between a two-minute test and a half-hour one on a computer that is
+        # paid for by the minute.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" \
+                   --jq '.assets[] | select(.name == "manifest.txt") | .url' \
+                 2>/dev/null || true)"
+          if [[ -z "${url}" ]]; then
+              echo "No previous manifest.txt — this build ships the full bundle only."
+              exit 0
+          fi
+          gh api -H "Accept: application/octet-stream" "${url}" > previous-manifest.txt
+          echo "Previous build listed $(wc -l < previous-manifest.txt) files."
+
       - name: Build the bundle
-        run: bash tools/build-usb-bundle.sh
+        run: |
+          if [[ -s previous-manifest.txt ]]; then
+              bash tools/build-usb-bundle.sh --previous-manifest previous-manifest.txt
+          else
+              bash tools/build-usb-bundle.sh
+          fi
 
       - name: Show what was produced
         run: ls -lh dist/
@@ -52,7 +77,9 @@ jobs:
         with:
           tag_name: ${{ inputs.tag }}
           name: "LineLedger portable (USB) — ${{ inputs.tag }}"
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/manifest.txt
           body: |
             Portable LineLedger for Windows. Runs from a USB stick — nothing is
             installed, no administrator rights, no internet connection used.
@@ -65,6 +92,16 @@ jobs:
             The unzip is quick — the application travels as one packed file.
             The FIRST run of `Start LineLedger.bat` unpacks it and prepares the
             screens, which takes a few minutes and happens only once.
+
+            **Already have LineLedger on the stick?** Download
+            `LineLedger-update-to-...zip` instead — it holds only what changed
+            and applies in about two minutes. Unzip it into the `LineLedger`
+            folder, double-click `Apply update.bat`, and read
+            `UPDATE-INSTRUCTIONS.txt` inside it, which says exactly what this
+            build changes and what to do.
+
+            (`manifest.txt` is how the next build works out what changed. It is
+            not something to download.)
 
             To look around first without touching real books, double-click
             `Try the demo.bat` instead.

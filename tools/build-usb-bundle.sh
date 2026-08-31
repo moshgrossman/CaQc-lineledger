@@ -17,6 +17,13 @@
 # See docs/usb-portable.md for the why.
 #
 # Usage:  tools/build-usb-bundle.sh [--php-zip /path/to/php.zip]
+#                                   [--previous-manifest /path/to/manifest.txt]
+#
+# Given the previous build's manifest, it also writes an UPDATE PACK: a small
+# zip holding only the files that changed, so a stick already carrying
+# LineLedger can be brought up to date in a couple of minutes instead of being
+# rebuilt from scratch. Testing happens on a paid-by-the-minute computer;
+# thirty minutes of unpacking per test cycle is the real cost of this project.
 #
 set -euo pipefail
 
@@ -38,10 +45,12 @@ BUILD="${ROOT}/build/usb"
 STAGE="${BUILD}/LineLedger"
 DIST="${ROOT}/dist"
 PHP_ZIP_LOCAL=""
+PREV_MANIFEST=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --php-zip) PHP_ZIP_LOCAL="$2"; shift 2 ;;
+        --previous-manifest) PREV_MANIFEST="$2"; shift 2 ;;
         *) echo "unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -583,6 +592,96 @@ say "Clearing build-machine caches"
 # stick itself by the launcher, where the paths are the machine's own.
 rm -rf "${STAGE}/app/bootstrap/cache"/*.php
 find "${STAGE}/app/storage/framework/views" -name '*.php' -delete 2>/dev/null || true
+
+say "Listing what is on the stick"
+# A checksum of every file that lands on the stick, kept as a Release asset.
+# The NEXT build downloads it and can then say exactly what changed — which is
+# what makes a small update pack possible instead of a full re-unpack.
+#
+# The books themselves are deliberately absent: an update must never overwrite
+# what he has typed.
+MANIFEST="${DIST}/manifest.txt"
+(
+    cd "${STAGE}"
+    find . -type f ! -name '*.sqlite' -printf '%P\n' | LC_ALL=C sort | \
+        while IFS= read -r f; do
+            printf '%s  %s\n' "$(sha256sum "${f}" | cut -d' ' -f1)" "${f}"
+        done
+) > "${MANIFEST}"
+printf '    %s files listed\n' "$(wc -l < "${MANIFEST}")"
+
+if [[ -n "${PREV_MANIFEST}" && -s "${PREV_MANIFEST}" ]]; then
+    say "Building the update pack"
+    # Everything that differs from the previous build, and nothing else.
+    PACK="${BUILD}/update"
+    rm -rf "${PACK}"
+    mkdir -p "${PACK}/files"
+
+    # Old and new as "path<tab>checksum" lookups.
+    #
+    # sed rather than awk on purpose: awk's field splitting would rebuild the
+    # line and quietly mangle "Start LineLedger.bat" and every other path with
+    # a space in it. (It did exactly that on the first run of this.)
+    to_tsv() {
+        sed -E 's/^([0-9a-f]{64})  (.*)$/\2\t\1/' "$1" | LC_ALL=C sort
+    }
+    to_tsv "${PREV_MANIFEST}" > "${BUILD}/old.tsv"
+    to_tsv "${MANIFEST}"      > "${BUILD}/new.tsv"
+
+    # Changed or added: in the new list with a different checksum, or not in
+    # the old list at all.
+    LC_ALL=C join -t$'\t' -j1 -v1 "${BUILD}/new.tsv" "${BUILD}/old.tsv" \
+        | cut -f1 > "${BUILD}/changed.txt"
+    LC_ALL=C join -t$'\t' -j1 "${BUILD}/new.tsv" "${BUILD}/old.tsv" \
+        | awk -F'\t' '$2 != $3 {print $1}' >> "${BUILD}/changed.txt"
+    LC_ALL=C sort -u -o "${BUILD}/changed.txt" "${BUILD}/changed.txt"
+
+    # Gone: in the old list, absent from the new one.
+    LC_ALL=C join -t$'\t' -j1 -v1 "${BUILD}/old.tsv" "${BUILD}/new.tsv" \
+        | cut -f1 > "${PACK}/removed.txt"
+
+    changed_count="$(wc -l < "${BUILD}/changed.txt")"
+    removed_count="$(wc -l < "${PACK}/removed.txt")"
+    printf '    %s changed or new, %s removed\n' "${changed_count}" "${removed_count}"
+
+    while IFS= read -r f; do
+        [[ -n "${f}" ]] || continue
+        mkdir -p "${PACK}/files/$(dirname "${f}")"
+        cp "${STAGE}/${f}" "${PACK}/files/${f}"
+    done < "${BUILD}/changed.txt"
+
+    # Two things the applier has to know about, because getting either wrong
+    # would cost him a test cycle or his books.
+    #
+    # 1. Compiled screens. If any template changed, the ones already compiled
+    #    on the stick have to go, or he tests the old screen and reports that
+    #    nothing changed.
+    if grep -qE '^app/resources/views/|\.blade\.php$' "${BUILD}/changed.txt"; then
+        echo yes > "${PACK}/recompile-screens.flag"
+    fi
+    # 2. The books' structure. The stick's books are built and migrated HERE, at
+    #    build time — nothing migrates them on the stick. So a build that
+    #    changes a migration cannot be delivered as an update at all, and the
+    #    pack has to say so rather than half-apply and corrupt his books.
+    if grep -q '^app/database/migrations/' "${BUILD}/changed.txt" \
+       || grep -q '^app/database/migrations/' "${PACK}/removed.txt"; then
+        echo yes > "${PACK}/full-bundle-required.flag"
+    fi
+
+    cp "${ROOT}/usb/Apply update.bat"      "${PACK}/"
+    cp "${ROOT}/usb/apply-env-updates.php" "${PACK}/"
+    "${PHP_BIN}" "${ROOT}/tools/write-update-instructions.php" \
+        "${PACK}" "${BUNDLE_VERSION}" "${BUILD}/changed.txt" \
+        "${ROOT}/usb/BUNDLE-NOTES.txt"
+
+    UPDATE_ZIP="${DIST}/LineLedger-update-to-b${BUNDLE_VERSION}.zip"
+    rm -f "${UPDATE_ZIP}"
+    ( cd "${PACK}" && zip -rq "${UPDATE_ZIP}" . )
+    printf '    %s (%s)\n' "${UPDATE_ZIP##*/}" "$(du -h "${UPDATE_ZIP}" | cut -f1)"
+else
+    say "No previous manifest — full bundle only"
+    printf '    Nothing to compare against, so no update pack this time.\n'
+fi
 
 say "Packing the program into one file"
 # THIS IS THE FIX FOR "THE UNZIP TOOK OVER HALF AN HOUR".
