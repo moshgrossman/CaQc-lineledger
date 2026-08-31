@@ -1,0 +1,133 @@
+LINELEDGER USB BUILD 3 - WHAT YOUR ERROR LOG SAID
+
+For Moshe. About 15 minutes.
+
+You need: the Windows PC and the USB stick.
+
+
+-------------------------------------------------------------
+THE SHORT VERSION
+-------------------------------------------------------------
+
+Your error log found it. The 500 was not a timeout and not
+slowness. It was this:
+
+    unable to open database file
+
+Not your books file - that one was being written fine, and
+had been for minutes. It was one of the small working files
+that the database creates beside your books, for a moment,
+every time it saves something.
+
+On a USB stick, with antivirus watching every file that
+appears and disappears, creating and deleting those little
+files is exactly the kind of thing that fails now and then.
+
+That is why it died on a different account each time you
+tried - the first time on "Undeposited Funds", the second
+time on "Accounts Receivable". A permission problem would
+fail in the same place every time. A random one does not.
+
+
+-------------------------------------------------------------
+WHAT WAS CHANGED
+-------------------------------------------------------------
+
+1. The database no longer creates and deletes that working
+file for every single save. It now makes it once and empties
+it when done. Same protection if the power goes out, a small
+fraction of the file activity.
+
+2. If your books are busy for a moment, the app now waits up
+to 15 seconds instead of giving up instantly.
+
+3. The app also uses a scratch file in the PC's temporary
+folder while saving. On a locked-down PC that folder can be
+off limits. LineLedger now tests it at startup and, if it
+cannot use it, puts the scratch file on the stick instead.
+
+4. It now warns you at startup if the stick is nearly full.
+Below about 300 MB free, saving can fail mid-entry.
+
+5. Something separate that your log also caught: signing up
+was making the PC call out to the internet, to check your
+password against a public list of leaked ones. The README
+promises this build never uses the internet. It does not now
+- that check is gone. Your password still has to be twelve
+characters with upper, lower, numbers and symbols.
+
+
+-------------------------------------------------------------
+ONE PIECE OF GOOD NEWS
+-------------------------------------------------------------
+
+I checked the code: the whole "create organization" step runs
+as one all-or-nothing operation. When it failed, everything
+it had done was undone.
+
+So there is no half-made company sitting in your books, and
+trying again was always safe.
+
+
+-------------------------------------------------------------
+TESTING IT
+-------------------------------------------------------------
+
+1. On GitHub: Actions, then "Build USB bundle", then "Run
+workflow". Give it a tag like usb-2026-08-31.
+
+Wait for it to finish and open the Release it makes.
+
+
+2. Delete the old LineLedger folder from the stick.
+
+There is nothing in it worth keeping - the company was never
+created.
+
+While you are there, look at how much free space the stick
+has, and tell me the number. If it is small, that alone may
+be the whole story.
+
+
+3. Unzip the new download onto the stick, LineLedger folder
+at the top level.
+
+
+4. Double-click "Start LineLedger.bat" and leave it alone
+for a few minutes while it unpacks.
+
+Watch for a line saying the stick is nearly full, or that it
+is using the stick for temporary files. Either of those tells
+me something, so mention it if you see it.
+
+
+5. Sign up, run the wizard the same as before, and click
+"Create organization".
+
+
+6. Tell me which way it went.
+
+IF IT WORKED: say so, and roughly how long the unzip and the
+first start took.
+
+IF IT FAILED AGAIN: same as last time, and it worked - open
+
+    Show the error log.bat
+
+scroll to the bottom, and send me the last lines. If it is
+the same "unable to open database file" after all four of
+these changes, then it is the stick itself, and the next step
+is a different stick rather than more code.
+
+
+-------------------------------------------------------------
+BEING STRAIGHT WITH YOU
+-------------------------------------------------------------
+
+I still have not reproduced this failure. I have your log,
+which names it exactly, and I have made the four things most
+likely to cause it much less likely.
+
+That is not the same as proving it fixed. If it comes back,
+the log will tell us which of the four it was, and we will
+know a great deal more than we did.

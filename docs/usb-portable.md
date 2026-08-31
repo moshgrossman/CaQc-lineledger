@@ -29,6 +29,7 @@ and the application itself as a single `program.tar.gz`.
 | Mail | SMTP | `log` — nothing is sent |
 | Object storage | S3 optional | local only; AWS SDK removed |
 | Email verification | required | **not required** (see below) |
+| Password breach check | online lookup | removed — no network |
 
 ## Why the application ships as one packed file
 
@@ -86,13 +87,62 @@ every one of the ~400 screens would compile again on first use anyway. Building
 it on the stick takes about a minute, once, and is verifiably the right cache
 for that machine.
 
-## The two deliberate changes
+## The 500 after "Create organization"
+
+Reported twice from Windows, never reproducible on Linux. His error log named
+it:
+
+```
+SQLSTATE[HY000]: General error: 14 unable to open database file
+  (Connection: sqlite, Database: D:\LineLedger\Data\database.sqlite,
+   SQL: insert into "accounts" ... 1200 Undeposited Funds ...)
+```
+
+SQLite error 14 is `CANTOPEN` — it could not open **a** file. Not the books
+file: it had been writing that for minutes, and the same request had already
+inserted the company, the membership and several accounts. What it could not
+open is one of the small working files SQLite creates while a write is in
+flight — the rollback journal beside the books, or a statement journal in the
+system temp folder. The two attempts died on *different* accounts (1200, then
+1100), which is the signature of an intermittent file operation, not a
+permission or schema problem.
+
+Three things make that likely on this bundle specifically, and each is now
+addressed:
+
+| Suspect | What changed |
+|---|---|
+| The rollback journal is created and deleted for every write, and an antivirus filter holds a handle on each file as it appears | `journal_mode=TRUNCATE` — created once, emptied instead of deleted |
+| The page polls itself while a long write holds the database | `busy_timeout=15000` — wait for the lock instead of failing |
+| SQLite's scratch file lands in a system temp folder a locked-down PC will not allow | the launcher tests that folder and falls back to one on the stick |
+| No room on the stick for any of the above | the launcher warns below 300 MB free |
+
+Upstream wires `busy_timeout`, `journal_mode` and `synchronous` to `null` with
+no way to set them, so the build patches the staged `config/database.php` to
+read them from the settings file. Unset is still `null`, so a server install
+behaves exactly as before.
+
+**It is not confirmed fixed.** None of this was reproducible here, so these are
+the most likely causes made unlikely, not a demonstrated repair.
+
+What *is* confirmed: `CreateCompany` wraps the whole thing in
+`DB::transaction`, so a failure rolls back completely. A 500 here leaves no
+half-created company behind, and retrying is safe.
+
+## The deliberate changes
 
 **The AWS SDK is removed at build time**, through `composer remove` rather
 than by deleting the directory. The SDK registers a `files` autoload entry, so
 deleting it alone leaves the autoloader requiring a file that no longer exists
 and the application dies on boot. `league/flysystem-aws-s3-v3` goes with it.
 This saves about 250 MB that an offline build could never use.
+
+**The online password check is removed.** `AppServiceProvider` adds
+`->uncompromised()` to the production password rules, which checks every new
+password against `api.pwnedpasswords.com`. His log shows the offline bundle
+calling it. `README-USB.txt` promises this build never uses the internet, and
+that promise wins. Length, mixed case, letters, numbers and symbols all still
+apply.
 
 **`MustVerifyEmail` is dropped from the `User` model in the staged copy.**
 LineLedger requires a new user to confirm their email address before the
@@ -102,8 +152,9 @@ parked on `/email/verify` permanently — the software is unusable. The build
 script patches the staged copy only; `app/Models/User.php` in this repository
 is untouched. Passwords, two-factor and passkeys are unaffected.
 
-The script verifies both patches applied and fails loudly if upstream changes
-shape underneath them, rather than shipping a broken bundle.
+Every one of these patches verifies that it applied, and fails the build loudly
+if upstream changed shape underneath it, rather than shipping a broken bundle
+or a silently dead patch.
 
 ## Diagnosing a failure on the stick
 
@@ -120,8 +171,6 @@ and unproven from here: the build and every check above run on Linux with the
 same PHP version that ships inside the bundle. The timings quoted are Linux
 measurements — they show the direction, not the number he will see.
 
-The `500 Server Error` seen after "Create organization" on Windows has **not**
-been reproduced, on Linux or anywhere else. The changes here are aimed at its
-most likely cause (a very slow request on a single-threaded server, with
-polling requests queued behind it) and, failing that, at making the next
-occurrence say what it actually was.
+The `500 Server Error` after "Create organization" has **not** been reproduced
+here — only diagnosed from his log. See the section above for what it was and
+what now stands in its way.
