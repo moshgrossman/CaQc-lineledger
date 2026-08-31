@@ -1,0 +1,14 @@
+This build adds the update pack itself - the thing you are
+holding. From now on, every build publishes two downloads:
+
+  the full one, for a fresh stick
+
+  this small one, for a stick that already has LineLedger
+
+The full one is only needed when the books' structure
+changes, which is rare. Everything else - a fix to the
+launcher, a setting, a screen - arrives as an update like
+this one and takes two minutes instead of half an hour.
+
+The program itself is the same as build 3. Nothing about how
+LineLedger runs has changed.

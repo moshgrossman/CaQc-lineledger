@@ -156,6 +156,49 @@ Every one of these patches verifies that it applied, and fails the build loudly
 if upstream changed shape underneath it, rather than shipping a broken bundle
 or a silently dead patch.
 
+## Update packs, and why they exist
+
+Testing happens on a computer paid for by the minute. Unpacking the full
+bundle onto the stick takes something like half an hour, so every test cycle
+cost half an hour of paid time before a single thing could be tried. That, not
+page speed, is the real cost of this project.
+
+So every build publishes two downloads:
+
+- `LineLedger-USB-<version>-b<bundle>.zip` — the full bundle, for a fresh stick.
+- `LineLedger-update-to-b<bundle>.zip` — only the files that differ from the
+  previous build. Typically kilobytes; a launcher fix is two files.
+
+It works off `manifest.txt`, a checksum of every file that lands on the stick,
+published as a Release asset. The next build downloads the previous one, diffs
+it, and copies only what changed into the pack. Books are deliberately absent
+from the manifest: an update must never overwrite what he has typed.
+
+The pack carries `Apply update.bat`, so applying it is a double-click rather
+than a folder-merge done by hand at the machine, and an
+`UPDATE-INSTRUCTIONS.txt` generated from the real diff — it cannot claim to
+change something the pack does not contain. The human summary in it comes from
+`usb/BUNDLE-NOTES.txt`, which is written by hand for each build.
+
+Three things the pack has to get right, each of which would otherwise cost a
+cycle or worse:
+
+- **Deleted files.** Trimming removes files; the pack lists them and the
+  applier deletes them, or the stick keeps carrying files the build dropped.
+- **Compiled screens.** If a template changed, the copies already compiled on
+  the stick are cleared, or he tests the old screen and reports no change.
+- **New settings.** `Data/env.template` is only read on a stick's *first* run,
+  so a new setting would never reach an existing `.env`. `apply-env-updates.php`
+  appends keys that are missing and **never** modifies one that exists —
+  `APP_KEY` and `DB_DATABASE` are written per machine, and overwriting either
+  would log him out of his own books or point the app at the wrong file.
+
+**A build that changes a migration cannot ship as an update at all.** The books
+on the stick are created and migrated at build time; nothing migrates them on
+the stick. The build detects a changed migration, marks the pack, and
+`Apply update.bat` refuses to run — a program expecting a new schema against
+old books is worse than no update.
+
 ## Diagnosing a failure on the stick
 
 The bundle logs at `debug` level to `app/storage/logs/laravel.log`, and
