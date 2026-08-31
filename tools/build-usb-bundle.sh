@@ -97,6 +97,63 @@ grep -q 'MustVerifyEmail' "${USER_MODEL}" && {
 }
 "${PHP_BIN}" -l "${USER_MODEL}" >/dev/null
 
+say "Making SQLite settings reachable from the settings file"
+# The 500 after "Create organization" was this, from his error log:
+#
+#   SQLSTATE[HY000]: General error: 14 unable to open database file
+#     (insert into "accounts" ... 1200 Undeposited Funds ...)
+#
+# SQLite error 14 is CANTOPEN — it could not open A file. Not the books file
+# itself, which it had been writing happily for minutes: one of the small
+# working files SQLite creates beside it (the rollback journal) or in the
+# system temp folder (a statement journal) while a write is in flight. On a
+# USB stick, with an antivirus filter watching every create and delete, those
+# are exactly the operations that fail intermittently — which is why it died
+# on a different account each attempt.
+#
+# Laravel's SQLite connector already knows how to set the three pragmas that
+# make this far less likely, but upstream's config wires them to null with no
+# way to set them. This makes them read the settings file, so the portable
+# build can turn them on and a server install is unaffected (unset = null =
+# exactly today's behaviour).
+DB_CONFIG="${STAGE}/app/config/database.php"
+for pragma in busy_timeout journal_mode synchronous; do
+    if ! grep -q "'${pragma}' => null," "${DB_CONFIG}"; then
+        echo "ERROR: config/database.php no longer has '${pragma}' => null." >&2
+        echo "       Upstream changed the sqlite connection; re-check this patch." >&2
+        exit 1
+    fi
+    sed -i "s/'${pragma}' => null,/'${pragma}' => env('DB_$(echo "${pragma}" | tr '[:lower:]' '[:upper:]')'),/" "${DB_CONFIG}"
+done
+"${PHP_BIN}" -l "${DB_CONFIG}" >/dev/null
+
+say "Removing the online password check"
+# Registering a user made the machine call out to api.pwnedpasswords.com. It
+# is in his log, from the offline bundle:
+#
+#   cURL error 60: SSL certificate ... for https://api.pwnedpasswords.com/...
+#
+# Laravel's uncompromised() rule checks a new password against a public
+# breach database over the internet. On a machine with no network it stalls
+# and then fails; on his it got as far as TLS, which means the books machine
+# was talking to the internet — something README-USB.txt promises this build
+# never does. The promise wins: the rule goes.
+#
+# Only that one rule. Length, mixed case, letters, numbers and symbols all
+# still apply, so passwords are no weaker in any way a stick full of books
+# cares about.
+PROVIDER="${STAGE}/app/app/Providers/AppServiceProvider.php"
+if ! grep -q '\->uncompromised()' "${PROVIDER}"; then
+    echo "ERROR: AppServiceProvider no longer calls ->uncompromised()." >&2
+    echo "       Upstream moved the password rules; re-check before shipping," >&2
+    echo "       or the offline build will again phone out on every sign-up." >&2
+    exit 1
+fi
+sed -i '/->uncompromised()$/d' "${PROVIDER}"
+grep -q '\->uncompromised()' "${PROVIDER}" && {
+    echo "ERROR: the password rule is still there." >&2; exit 1; }
+"${PHP_BIN}" -l "${PROVIDER}" >/dev/null
+
 say "Installing PHP dependencies (production only)"
 (
     cd "${STAGE}/app"
@@ -467,6 +524,24 @@ APP_KEY=__APP_KEY__
 DB_CONNECTION=sqlite
 DB_DATABASE=__DB_PATH__
 DB_FOREIGN_KEYS=true
+
+# Written for a USB stick, not a server. See "Making SQLite settings reachable"
+# in tools/build-usb-bundle.sh for the error these answer.
+#
+# TRUNCATE: SQLite's default is to CREATE the rollback journal beside the books
+# at the start of every write and DELETE it at the end. On removable media,
+# with an antivirus filter holding a handle on each file as it appears, that
+# churn is where "unable to open database file" comes from. TRUNCATE creates
+# the file once and empties it instead of deleting it — same crash safety, a
+# fraction of the file operations.
+DB_JOURNAL_MODE=TRUNCATE
+# Wait up to 15 seconds for a lock rather than failing instantly. The page
+# polls itself every few seconds and the built-in server handles one request at
+# a time, so a long write does have things queued behind it.
+DB_BUSY_TIMEOUT=15000
+# Still flushes at every transaction; skips the extra flush at each checkpoint.
+# The safety that matters on a stick — surviving being yanked — is unchanged.
+DB_SYNCHRONOUS=NORMAL
 
 # Everything runs in-process: no queue worker, no scheduler, no Redis.
 QUEUE_CONNECTION=sync

@@ -189,6 +189,47 @@ if not exist "%APPDIR%\storage\framework\views\*.php" (
     echo.
 )
 
+rem --- 3c. Room to work --------------------------------------------
+rem SQLite writes a small working file beside the books during every save.
+rem If the stick is full it cannot, and the save fails with an error that
+rem says nothing useful. Checked here, where it can be said plainly.
+rem PHP reports the number into a file, because quoting a path with
+rem spaces inside a for /f command line is a well-known way to get a
+rem launcher that works everywhere except the one PC that matters.
+set "FREEMB="
+pushd "%HERE%"
+"%PHPEXE%" -c "%PHPINI%" -r "file_put_contents('free.tmp', (int) floor(@disk_free_space(getcwd()) / 1048576));" >nul 2>&1
+if exist "free.tmp" for /f "usebackq delims=" %%F in ("free.tmp") do set "FREEMB=%%F"
+del "free.tmp" >nul 2>&1
+popd
+if defined FREEMB if %FREEMB% LSS 300 (
+    echo   WARNING: only %FREEMB% MB free on this stick.
+    echo.
+    echo   LineLedger needs room to save. Below about 300 MB, saving can
+    echo   fail in the middle of an entry. Free some space when you can.
+    echo.
+)
+
+rem --- 3d. Somewhere to put temporary files -------------------------
+rem While saving, SQLite may also open a scratch file in the system
+rem temporary folder. On a locked-down PC that folder can be off limits,
+rem and the save then fails with "unable to open database file" - which
+rem is exactly what his error log showed. So: use the PC's temporary
+rem folder if it will take a file, and the stick if it will not.
+set "SCRATCH=%TEMP%\LineLedger-temp"
+mkdir "%SCRATCH%" >nul 2>&1
+>"%SCRATCH%\.writetest" echo test 2>nul
+if exist "%SCRATCH%\.writetest" (
+    del "%SCRATCH%\.writetest" >nul 2>&1
+) else (
+    set "SCRATCH=%DATADIR%\temp"
+    mkdir "%DATADIR%\temp" >nul 2>&1
+    echo   Using the stick for temporary files - this PC's own folder
+    echo   is not writable.
+)
+set "TEMP=%SCRATCH%"
+set "TMP=%SCRATCH%"
+
 rem --- 4. Start the web server ------------------------------------
 rem artisan serve is used rather than PHP's bare built-in server
 rem because Laravel needs a router to serve its files correctly.
