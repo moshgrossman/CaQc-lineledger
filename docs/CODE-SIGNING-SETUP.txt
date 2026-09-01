@@ -1,0 +1,538 @@
+LINELEDGER - SETTING UP CODE SIGNING ON GITHUB ACTIONS
+
+Version 1 - written 1 September 2026
+
+
+READ THIS FIRST - THE HONEST SITUATION
+
+Right now LineLedger has nothing of its own to sign.
+
+A code signing certificate signs .exe, .dll, .msi and .ps1 files.
+It cannot sign .bat files. Windows has no mechanism for that -
+a .bat is just text, and there is nowhere to put a signature.
+
+What the USB bundle ships today is:
+
+  - Start LineLedger.bat, Try the demo.bat, Apply update.bat
+    (your files - .bat, cannot be signed)
+
+  - php.exe and php8.dll
+    (not yours - these come from php.net and are already signed
+    by the PHP maintainers)
+
+So buying a certificate today would change nothing a customer sees.
+
+To get value from signing, LineLedger would need a small launcher
+program - LineLedger.exe - that does what Start LineLedger.bat does
+now. That is a real piece of work and a separate decision, and this
+file does not assume you have made it.
+
+
+WHAT THIS FILE COVERS
+
+Everything you can set up NOW that will be waiting and ready
+whenever the launcher .exe decision is made:
+
+  Part 1 - the Azure side (getting the signing account)
+
+  Part 2 - the GitHub Environment that holds the credentials
+
+  Part 3 - what is still open, and what I need from you
+
+Parts 1 and 2 are useful on their own. The identity check in Part 1
+takes up to 20 business days, so starting it early costs you nothing
+and saves you weeks later.
+
+
+HOW LONG THIS TAKES
+
+Part 1: about 45 minutes of your time, then a wait of
+1 to 20 business days for Microsoft to verify who you are.
+
+Part 2: about 20 minutes, once Part 1 has finished.
+
+You do not need to do both in one sitting. Part 2 cannot be
+finished until Part 1 comes back approved.
+
+
+WHAT YOU NEED AT HAND
+
+  - Your tablet with Chrome.
+
+  - A phone with a working camera.
+
+  - The Microsoft Authenticator app installed on that phone.
+    IMPORTANT: this is an app install, so if your filter blocks it
+    you will need an exception first. This is the small kind -
+    a one-off "allow this app" request, usually about 15 minutes
+    by phone during business hours. Sort this out BEFORE you start
+    step 4, because the verification link expires.
+
+  - A government photo ID: passport, driver's licence or
+    provincial ID card. Not a library card or club card.
+
+  - A recent utility bill or bank statement showing your name and
+    address, dated within the last 3 months. You may not be asked
+    for it, but have it ready.
+
+  - A credit card for the Azure account.
+
+  - About $10 US per month, ongoing.
+
+
+=================================================================
+PART 1 - THE AZURE SIDE
+=================================================================
+
+
+STEP 1 - Create an Azure account
+
+Open Chrome and go to:
+
+  https://portal.azure.com
+
+Sign in with a Microsoft account, or create one if you do not
+have one. Use an email address you check regularly - Microsoft
+sends the verification links there.
+
+You should see: a dark blue dashboard headed "Microsoft Azure"
+with a search bar across the top.
+
+If it asks you to start a free trial, that is fine to accept.
+The signing service is charged separately from the trial credit.
+
+
+STEP 2 - Check your billing account says "Individual"
+
+This step looks boring and is the one that most often ruins
+the whole process, so do not skip it.
+
+In the search bar at the top, type: Cost Management + Billing
+
+Select it, then in the left-hand menu select "Billing scopes"
+and open your billing account.
+
+Check three things:
+
+  a) Account type says "Individual" - not "Enterprise" and
+     not "Organization".
+
+  b) The legal name is EXACTLY your full legal name as it appears
+     on your ID. Not a nickname, not a shortened version.
+
+  c) The billing address is exactly your address as it appears
+     on your ID or utility bill.
+
+Whatever is written here is what gets printed on your certificate,
+and it is what Microsoft checks your ID against. If the name on
+your ID is "Moshe" and the billing account says "Mo", the
+verification fails and you start over from the beginning.
+
+Fix anything wrong here NOW, before continuing.
+
+
+STEP 3 - Turn on the signing service
+
+In the search bar at the top, type: Subscriptions
+
+Select your subscription, then in the left-hand menu under
+"Settings" select "Resource providers".
+
+In the filter box on that page, type: Microsoft.CodeSigning
+
+You will see one row, and it will say "NotRegistered".
+
+Select that row, then select "Register" on the toolbar above.
+
+You should see: the status changes to "Registering", and after a
+minute or two, "Registered". Refresh the page if it seems stuck.
+
+
+STEP 4 - Create the signing account
+
+In the search bar at the top, type: Artifact Signing
+
+Select "Artifact Signing Accounts", then select "Create".
+
+Fill in:
+
+  Subscription   - your subscription
+
+  Resource group - select "Create new", name it: lineledger
+
+  Account name   - lineledger
+                   (3 to 24 letters and numbers, must be globally
+                   unique, so if it is taken try lineledgerca)
+
+  Region         - East US
+
+  Pricing        - Basic
+
+Basic is $9.99 US a month and covers 5,000 signatures a month.
+LineLedger will use a handful per release. You will never come
+close to the limit. Do not select Premium.
+
+Select "Review + Create", then "Create".
+
+You should see: a progress page, then "Your deployment is
+complete". Select "Go to resource".
+
+
+STEP 5 - Give yourself permission to verify your identity
+
+Azure will not let you verify yourself until you hold a
+specific role, and the button stays greyed out with no
+explanation if you do not.
+
+On your Artifact Signing account page, in the left-hand menu
+select "Access control (IAM)".
+
+Select "Add", then "Add role assignment".
+
+In the search box type: Artifact Signing Identity Verifier
+
+Select that role, then "Next".
+
+Select "Select members", find yourself by your email address,
+select yourself, then "Select".
+
+Select "Review + assign", then "Review + assign" again.
+
+You should see: a green notification saying the role was added.
+
+It can take a few minutes to take effect. If the button in
+step 6 is greyed out, wait five minutes and refresh.
+
+
+STEP 6 - Start the identity check
+
+On your Artifact Signing account page, in the left-hand menu
+under "Objects", select "Identity validations".
+
+There is a dropdown that says "Organization". Change it to
+"Individual".
+
+Then select "New Identity", and underneath select "Public".
+
+Select your billing account from the dropdown. The form fills
+itself in from your billing account and you cannot edit it here -
+this is why step 2 mattered.
+
+Check the "Certificate subject preview" box on screen. That is
+literally what will appear on the certificate your customers can
+inspect. Your city, province and country appear. Your street
+address and email do not.
+
+If anything is wrong, stop. Go back and fix the billing account,
+then come back. Do not proceed with wrong details.
+
+Select "Create".
+
+You should see: the status change to "In Progress".
+
+
+STEP 7 - Prove who you are
+
+Wait for the status to change to "Action Required". This is
+usually quick - minutes, not days.
+
+Select your name in the list. A panel opens on the right.
+Select the link under "Please complete your verification here".
+
+Sign in with the SAME email address you used on the request.
+A different address will fail.
+
+Select "Get verified here through our trusted ID-verifiers".
+
+From here a company called AU10TIX handles the check. You will:
+
+  a) Enter your email, and get a PIN code by email. Enter it.
+
+  b) Enter your phone number.
+
+  c) See a QR code on the tablet screen. Scan it with your
+     phone camera. Do NOT close the tablet screen.
+
+  d) On the phone, photograph your ID when prompted.
+
+Tips that decide whether this works first time:
+
+  - No flash. No direct sunlight.
+
+  - Photograph the ID flat on a table, camera directly above.
+
+  - Do not crop. Leave a margin all around.
+
+  - Two-sided ID means two separate photos.
+
+  - Plain, dark, uncluttered background.
+
+You get three attempts at document uploads, so take your time
+rather than rushing a bad photo.
+
+  e) When the phone side finishes, select "Open Authenticator",
+     then back on the tablet scan the new QR code with your phone.
+
+  f) Select "Add" to add the verified ID to Authenticator, then
+     "Share" to share it back.
+
+You should see, on the tablet: "Verification Successful".
+
+Then, back in the Azure portal, after a couple of minutes the
+status changes to "Completed".
+
+If it says "Failed": you have to create a brand new identity
+validation request from step 6. The old one cannot be retried.
+Check your billing account details match your ID exactly before
+trying again.
+
+If Microsoft asks for more documents, you get an email and the
+status goes back to "Action Required". Upload the utility bill
+or bank statement in the portal. Documents must be issued within
+the last 12 months.
+
+Microsoft says this whole process takes 1 to 20 business days.
+Individuals are usually at the fast end. There is nothing to do
+but wait.
+
+
+STEP 8 - Create the certificate profile
+
+Do this only once step 7 shows "Completed".
+
+On your Artifact Signing account page, under "Objects", select
+"Certificate profiles".
+
+Select "Create", and choose the type "Public Trust".
+
+Fill in:
+
+  Certificate Profile Name - lineledger-release
+                             (5 to 100 letters and numbers)
+
+  Verified CN and O        - select the identity validation you
+                             just completed
+
+Leave "Program Type" as "None".
+
+Leave the street address and postal code checkboxes UNTICKED.
+There is no reason to print your home address on software your
+customers can inspect.
+
+Check the "Certificate Subject Preview" one last time.
+
+Select "Create".
+
+Part 1 is done. You now own a signing certificate.
+
+
+=================================================================
+PART 2 - THE GITHUB ENVIRONMENT
+=================================================================
+
+This is the part that lets a GitHub Actions build use the
+certificate without you ever handling a key or a file.
+
+The shape of it: Azure needs to recognise GitHub as an allowed
+caller. You create an identity in Azure, give it permission to
+sign, and store its details in GitHub as an Environment.
+
+A GitHub Environment - rather than plain repository secrets -
+because it lets you require your own approval before any build
+is allowed to sign anything. Worth having.
+
+
+STEP 9 - Create an app identity in Azure
+
+In the Azure portal search bar, type: Microsoft Entra ID
+
+Select it. In the left-hand menu select "App registrations",
+then "New registration".
+
+Fill in:
+
+  Name - lineledger-github-actions
+
+Leave everything else at its default. Select "Register".
+
+You should see: an Overview page for the new registration.
+
+Copy down two values from that page. You need them in step 12:
+
+  Application (client) ID   - a long code with dashes
+
+  Directory (tenant) ID     - another long code with dashes
+
+These two are not secret. Writing them down is fine.
+
+
+STEP 10 - Create a password for that identity
+
+Still on the app registration page, in the left-hand menu
+select "Certificates & secrets".
+
+Select "New client secret".
+
+Fill in:
+
+  Description - github actions
+
+  Expires     - 24 months
+
+Select "Add".
+
+IMPORTANT: a "Value" now appears in the table. Copy it
+immediately, right now, before leaving the page. Once you
+navigate away it is hidden forever and you have to delete it
+and make a new one.
+
+This one IS secret. It is the thing that would let someone sign
+software as you. Do not paste it into an email or a chat.
+
+Note in your calendar when it expires. In 24 months signing will
+break with an authentication error, and you will have forgotten
+why.
+
+
+STEP 11 - Let that identity sign
+
+Go back to your Artifact Signing account (search "Artifact
+Signing" again and open "lineledger").
+
+In the left-hand menu select "Access control (IAM)".
+
+Select "Add", then "Add role assignment".
+
+Search for and select the role: Artifact Signing Certificate
+Profile Signer
+
+Select "Next", then "Select members".
+
+Search for: lineledger-github-actions
+
+Select it, then "Select", then "Review + assign" twice.
+
+You should see: a green notification confirming it.
+
+This is the step that connects the two halves. Without it, the
+build authenticates fine and then fails at the moment of signing
+with a permissions error that does not explain itself.
+
+
+STEP 12 - Create the GitHub Environment
+
+Open Chrome and go to your repository:
+
+  https://github.com/moshgrossman/CaQc-lineledger
+
+Select "Settings" along the top of the repository.
+
+In the left-hand menu select "Environments", then
+"New environment".
+
+Name it: release-signing
+
+Select "Configure environment".
+
+
+STEP 13 - Require your approval before signing
+
+Still on the release-signing environment page.
+
+Tick "Required reviewers".
+
+In the box that appears, type your own GitHub username and
+select yourself.
+
+Select "Save protection rules".
+
+What this does: any build that tries to sign will pause and wait
+for you to press a button. Nothing gets signed with your identity
+without you seeing it happen. On a signing certificate this is
+worth the extra tap.
+
+
+STEP 14 - Store the credentials
+
+Still on the release-signing environment page, scroll down to
+"Environment secrets".
+
+Select "Add secret" and add these four, one at a time. The name
+must match exactly, capitals included.
+
+  Name:  AZURE_TENANT_ID
+  Value: the Directory (tenant) ID from step 9
+
+  Name:  AZURE_CLIENT_ID
+  Value: the Application (client) ID from step 9
+
+  Name:  AZURE_CLIENT_SECRET
+  Value: the secret Value you copied in step 10
+
+  Name:  AZURE_SIGNING_ACCOUNT
+  Value: lineledger
+         (or whatever you actually named it in step 4)
+
+You should see: four rows listed under Environment secrets,
+each showing only the name. GitHub will never show you the
+values again, and neither will I. That is correct and expected.
+
+Part 2 is done. The plumbing is in place.
+
+
+=================================================================
+PART 3 - WHAT IS STILL OPEN
+=================================================================
+
+Two things stand between here and a signed download, and both
+are decisions for you, not steps for you.
+
+
+THE LAUNCHER
+
+As explained at the top: there is no LineLedger.exe today, and
+.bat files cannot be signed. Someone has to build a small
+launcher program that replaces Start LineLedger.bat.
+
+This is not a huge job, but it is a real one, and it changes
+what your customers double-click. It needs a plan of its own
+before anyone writes it.
+
+
+THE BUILD MACHINE
+
+The USB bundle is built on Linux today - that is the
+"runs-on: ubuntu-latest" line in the build. Microsoft's signing
+tool only runs on Windows.
+
+So the build would need a second, short stage that runs on a
+Windows machine, takes the finished launcher, signs it, and
+hands it back. This is normal and well-trodden, but it is a
+change to how the build works, and it is worth doing carefully
+rather than quickly - that build is how your customers get the
+software.
+
+Neither of these should be started until you have decided you
+want the launcher at all.
+
+
+WHAT TO TELL ME WHEN YOU ARE READY
+
+  1. Did the identity check pass, and what does the certificate
+     subject preview say?
+
+  2. Do you want the launcher .exe built? That is the real
+     decision here.
+
+  3. If yes - should LineLedger.exe replace Start LineLedger.bat
+     entirely, or sit next to it for a release or two while you
+     check it works on real customers' machines?
+
+
+A NOTE ON COST
+
+  Azure Artifact Signing, Basic  -  about $10 US per month
+
+That is the whole cost. There is no separate certificate to buy
+and no renewal fee. If you stop paying, signing stops working;
+software already signed stays signed and keeps working.
